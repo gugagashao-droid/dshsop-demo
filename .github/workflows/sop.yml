@@ -1,0 +1,132 @@
+name: DSHSOP Pipeline
+
+# 薄编排壳：只定义阶段顺序、触发条件与平台矩阵，不写任何项目命令。
+# 换项目只改 ci.json；换 CI 平台只改这层壳，scripts/ci-run.py 不用动。
+#
+# 治理约定（来自审计）：
+# - permissions 最小化到 contents: read；
+# - 同一 PR / 分支只保留一个在跑的 run；
+# - 上线前把 actions 的 tag 换成 commit SHA（供应链）；本模板暂用 tag 并留 TODO。
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "到顶复位的原因（写入日志，无实际校验）"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dshsop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: 门禁一致性
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 文档 / 结构 / 模型分离
+        run: python scripts/gate.py --ci
+
+  machine:
+    name: 机器检查（③ 前半）
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 机器检查
+        run: python scripts/ci-run.py --stage machine
+
+  platform:
+    name: 多平台（③ 后半）
+    needs: machine
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 多平台构建与兼容性
+        run: python scripts/ci-run.py --stage platform
+
+  ai-review:
+    name: 三视角审核（④）
+    needs: [machine, platform]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # .review/state.json 在干净 checkout 里会丢；不持久化，交叉审永远从第 1 轮开始，
+      # 到顶机制形同虚设。只恢复 state.json：连 findings 一起恢复，缺视角时会把上一轮
+      # 的结果当成本轮结果合并并通过。
+      - name: 恢复审核状态
+        uses: actions/cache/restore@v4
+        with:
+          path: .review/state.json
+          key: dshsop-review-${{ github.event.pull_request.number || github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            dshsop-review-${{ github.event.pull_request.number || github.ref_name }}-
+
+      - name: 三视角审核
+        env:
+          # 具体凭据由项目侧在仓库 secrets 里配置，ci.json 的命令自行取用。
+          CI_AGENT_TOKEN: ${{ secrets.CI_AGENT_TOKEN }}
+        run: python scripts/ci-run.py --stage ai
+
+      - name: 保存审核状态
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .review/state.json
+          key: dshsop-review-${{ github.event.pull_request.number || github.ref_name }}-${{ github.sha }}
+
+  # 到顶恢复出口：本地 reset 改不到 Actions cache，没有这一步流水线会永久卡红。
+  # 用法：Actions → 本 workflow → Run workflow，填 reason；复盘并写好 LESSONS.md 后再跑。
+  reset-state:
+    name: 人工复位轮次状态
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 恢复审核状态
+        uses: actions/cache/restore@v4
+        with:
+          path: .review/state.json
+          key: dshsop-review-reset-${{ github.sha }}
+          restore-keys: |
+            dshsop-review-${{ github.event.pull_request.number || github.ref_name }}-
+      - name: 复位（要求已达轮次上限且 LESSONS.md 已更新）
+        run: |
+          echo "复位原因：${{ github.event.inputs.reason }}"
+          python scripts/review-state.py reset --force
+      - name: 保存复位后的状态
+        uses: actions/cache/save@v4
+        with:
+          path: .review/state.json
+          key: dshsop-review-reset-${{ github.sha }}-${{ github.run_id }}

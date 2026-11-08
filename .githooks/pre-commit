@@ -1,0 +1,26 @@
+#!/bin/sh
+# 提交前门禁。装法：git config core.hooksPath .githooks
+# 这是 git 自己的机制：只要走 commit 就绕不过，与开哪个客户端、用哪个模型无关。
+set -e
+
+# 纯普通文档改动不要求重跑 CI 前独立审核：门禁一旦把人逼到必须 --no-verify，
+# 它就等于不存在了。但规则文件与被审对象仍然要过证据检查。
+# 默认值必须是「检查」：显式 unset，避免父 shell 里残留的 REVIEW_SKIP 漏进来。
+unset REVIEW_SKIP
+
+# core.quotePath=false：否则非 ASCII 文件名会被转义，行尾判成「不是 .md」。
+staged=$(git -c core.quotePath=false diff --cached --name-only)
+
+RULES='(^(README|REVIEW|ARCHITECTURE|GLOSSARY|spec|intent)\.md$)|(^docs/specs/.*\.md$)|(^\.agents/)|(^sop\.json$)|(^ci\.json$)|(^\.github/)'
+
+if [ -n "$staged" ] && ! echo "$staged" | grep -qvE '\.md$'; then
+  if echo "$staged" | grep -qE "$RULES"; then
+    echo "[pre-commit] 改了规则文件，仍会检查 CI 前独立审核证据"
+  else
+    echo "[pre-commit] 本次只有普通文档改动，跳过 CI 前独立审核证据检查"
+    export REVIEW_SKIP=1
+  fi
+fi
+
+echo "[pre-commit] 运行门禁 ..."
+python scripts/gate.py
