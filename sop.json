@@ -1,8 +1,10 @@
 {
-  "_note": "项目差异只写在这里。commands 用 argv 数组；留空则自动检测 package.json / pyproject.toml。review 的两个模型必须是具体 ID 且不同；占位符不填时门禁必须红。",
-  "commands": {},
+  "_note": "项目差异只写在这里。commands 用 argv 数组；留空则自动检测 package.json / pyproject.toml。review 的两个模型必须是具体 ID 且不同。",
+  "commands": {
+    "test": ["python", "-c", "raise SystemExit(0)"]
+  },
   "review": {
-    "preCiModel": "<填写：与主会话不同的具体模型 ID>",
-    "crossModel": "<填写：CI 后三视角模型 ID，须与 preCiModel 不同>"
+    "preCiModel": "deepseek-chat",
+    "crossModel": "deepseek-reasoner"
   }
 }
