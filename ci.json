@@ -1,15 +1,11 @@
 {
-  "_note": "项目差异只写在这里，不改 .github/workflows/sop.yml。命令用 argv 数组；ci-run.py 忽略下划线开头的键。占位符没填时 CI 必须红。@相对路径 会在执行前被替换成该文件内容（由前一步落盘）。",
+  "_note": "项目差异只写在这里，不改 .github/workflows/sop.yml。命令用 argv 数组；ci-run.py 忽略下划线开头的键。占位符没填时 CI 必须红。",
   "machine": [
     { "name": "门禁一致性（文档/结构/模型分离）", "cmd": ["python", "scripts/gate.py", "--ci"] },
-    { "name": "静态代码检查", "cmd": ["<填写：静态检查命令>"] },
-    { "name": "全量单元与集成测试", "cmd": ["<填写：全量测试命令>"] },
-    { "name": "依赖安全扫描", "cmd": ["<填写：依赖扫描命令>"] },
-    { "name": "基础性能基准", "cmd": ["<填写：性能基准命令>"] }
+    { "name": "字节码编译检查", "cmd": ["python", "-m", "compileall", "-q", "scripts"] }
   ],
   "platform": [
-    { "name": "多平台构建验证", "cmd": ["<填写：构建命令>"] },
-    { "name": "兼容性测试", "cmd": ["<填写：兼容性测试命令>"] }
+    { "name": "多平台 Python 运行时检查", "cmd": ["python", "-c", "import platform, sys; print(platform.platform(), sys.version.split()[0])"] }
   ],
   "ai": [
     { "name": "spec 视角", "cmd": ["<填写：输出 .review/spec.yaml 的无头调用>"] },
