@@ -18,6 +18,8 @@
 - **② 与 ④ 不是同一道关**：② 是单 agent、CI 前、靠换模型破盲区；④ 是三个视角、CI 后、靠交叉。两者不共用模型、不共用触发入口。
 - **自动判断不构成调用**：agentic 子代理由主 agent 按 `description` 判断是否调用，这是判断而非保证。所以 ② 有三层：skill 纪律（`.agents/skills/sop-gate/SKILL.md`）、`scripts/gate.py` 的证据校验、`.githooks/pre-commit` 最终拦截。④ 由 CI 的 `ai` 阶段调用。
 
+审核 subagent 的 prompt 模板见 `REVIEW-PROMPT.md`；② 的完整命令序列与日常循环见 `OPERATIONS.md`。
+
 **DSH 与 CodeBuddy 的触发差异（必读）**：DSH 没有 CodeBuddy 的 `Stop` hook，无法在「回合即将结束」时阻塞并要求继续。因此 ② 的**确定性保证来自门禁与提交钩子，而不是回合拦截**。这是本移植版最弱的一环，靠 CI 抓漏。
 
 ## 增量闭环
@@ -57,6 +59,20 @@
 2. 在「结构检查」登记一个项目自己的结构检查命令；它必须实际检查至少一个结构不变量，不能是空操作。
 3. 运行 `python scripts/check-structure.py`，必须返回 0。
 4. 新增目录、模块、跨模块依赖或公开接口时，先建立可识别的最小入口骨架并更新 `ARCHITECTURE.md`，重跑检查通过后再写业务实现。
+
+## ② 的收敛规则
+
+② 是判断型审核，不是穷举型检查。没有收敛规则，就会陷入「修一处、报一处」的循环；但收敛不等于放弃把关，而是把「漏」变成明确的「交给人」。
+
+- **第 1 轮全量**：审全部当前改动。
+- **第 2 轮起只看增量**：只审「上一轮审核之后」的 diff，历史部分不再重扫。
+- **最多 2 轮**：第 2 轮仍有 `important`，停手升级给人，由人决定继续修、放宽口径还是接受。
+- **三种情况强制回到全量**：改动涉及规则/契约文件（`SOP.md`、`REVIEW.md`、`AGENTS.md`、`ARCHITECTURE.md`、`spec.md`、`intent.md`）；上一轮证据覆盖的文件又被修改；审核者换了模型或 prompt。
+- **维护已知问题清单**：每轮把未解决的 findings 记进 `.review/open-findings.yaml`，下一轮审核前附上「不要重复报」，既减噪音也不遗忘。
+- **升级给人的落点**：人在 `.review/waivers.json` 写一条豁免（`id` + `reason` + `approved_by`），`check` 扣除该条并在输出里列出；agent 不得自行写 waiver，否则等于自己给自己放行。
+- **判级硬化**：`important` 必须写出「什么操作 → 什么错误」；写不出具体场景的，按 `REVIEW.md` 的判据降为 `nit`。
+
+规则只在这里写一次：`OPERATIONS.md` 只给执行步骤，`REVIEW-PROMPT.md` 只给 prompt 模板。
 
 ## 轮次与刹车
 

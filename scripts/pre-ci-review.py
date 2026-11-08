@@ -39,6 +39,7 @@ import _common  # noqa: E402
 
 STATE = Path(".review") / "pre-ci.json"
 FINDINGS = Path(".review") / "pre-ci-findings.yaml"
+WAIVERS = Path(".review") / "waivers.json"
 ACTOR = "dsh-subagent"
 REQUIRED_KEYS = ("fingerprint", "model", "actor", "important", "recorded_at", "findings_hash")
 
@@ -71,6 +72,32 @@ def findings_parser():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def load_waivers(root: Path) -> dict[str, dict]:
+    """读人裁决的豁免清单。缺文件 = 无豁免；格式错 = 硬失败（不许静默忽略）。"""
+    path = root / WAIVERS
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(_common.read_text(path))
+    except (OSError, ValueError) as exc:
+        raise Unreadable(f"豁免文件不可读：{exc}") from exc
+    entries = data.get("waivers") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        raise Unreadable("豁免文件顶层必须是 {\"waivers\": [...]}")
+    waivers: dict[str, dict] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise Unreadable("豁免条目必须是对象")
+        for field in ("id", "reason", "approved_by"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise Unreadable(f"豁免条目缺少 {field}：{entry}")
+        if entry["id"] in waivers:
+            raise Unreadable(f"豁免 id 重复：{entry['id']}")
+        waivers[entry["id"]] = entry
+    return waivers
 
 
 def findings_hash(root: Path) -> str:
@@ -160,9 +187,30 @@ def check(root: Path) -> int:
     if state["fingerprint"] != fingerprint(root):
         print("[pre-ci] FAIL: 审核之后代码又变了，证据不再覆盖当前改动")
         return 1
+    try:
+        waivers = load_waivers(root)
+    except (Unreadable, OSError) as exc:
+        print(f"[pre-ci] FAIL: {exc}")
+        return 6
+
     if important > 0:
-        print(f"[pre-ci] FAIL: 还有 {important} 条 important 未处置")
-        return 2
+        try:
+            items, _ = read_findings(root)
+        except (Unreadable, OSError) as exc:
+            print(f"[pre-ci] FAIL: 无法读取审核产物以核对豁免：{exc}")
+            return 6
+        all_ids = {item["id"] for item in items}
+        important_ids = [item["id"] for item in items if item["severity"] == "important"]
+        waived_ids = [wid for wid in important_ids if wid in waivers]
+        remaining = [wid for wid in important_ids if wid not in waivers]
+        if waived_ids:
+            print(f"[pre-ci] 已豁免 {len(waived_ids)} 条 important（人已裁决）：{', '.join(waived_ids)}")
+        unused = sorted(set(waivers) - all_ids)
+        if unused:
+            print(f"[pre-ci] 提示：{len(unused)} 条豁免未匹配当前 findings：{', '.join(unused)}")
+        if remaining:
+            print(f"[pre-ci] FAIL: 还有 {len(remaining)} 条 important 未处置：{', '.join(remaining)}")
+            return 2
 
     print(f"[pre-ci] OK: {state['model']} 于 {state['recorded_at']} 审过当前改动")
     return 0
@@ -235,6 +283,28 @@ def self_test() -> int:
         (root / ".coverage").write_text("cov", encoding="utf-8")
         (root / "build.log").write_text("log", encoding="utf-8")
         cases.append(("工具缓存不算代码改动", check(root), 0))
+
+        # 人裁决豁免：升级给人之后由人写 waivers.json，check 扣除并列出；
+        # 缺字段判不可读，未匹配的豁免不影响判定。
+        write_findings("important")
+        record(root, "deepseek-v4.2")
+        waivers_path = root / WAIVERS
+        waivers_path.write_text(
+            json.dumps({"waivers": [{"id": "spec-1", "reason": "人已接受", "approved_by": "用户"}]}),
+            encoding="utf-8",
+        )
+        cases.append(("waiver 覆盖 important", check(root), 0))
+        waivers_path.write_text(
+            json.dumps({"waivers": [{"id": "spec-1", "reason": "人已接受"}]}),
+            encoding="utf-8",
+        )
+        cases.append(("waiver 缺字段", check(root), 6))
+        waivers_path.write_text(
+            json.dumps({"waivers": [{"id": "nope", "reason": "r", "approved_by": "u"}]}),
+            encoding="utf-8",
+        )
+        cases.append(("waiver 未匹配仍按 important 判", check(root), 2))
+        waivers_path.unlink()
 
         # BOM 容忍：findings 带 BOM 也必须能解析。
         state_path.write_text("{not json", encoding="utf-8")
