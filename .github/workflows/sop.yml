@@ -74,6 +74,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          # ④ 段要拿 diff 审；默认 fetch-depth=1 会让 `git diff HEAD^` 失败。
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

@@ -8,9 +8,9 @@
     { "name": "多平台 Python 运行时检查", "cmd": ["python", "-c", "import platform, sys; print(platform.platform(), sys.version.split()[0])"] }
   ],
   "ai": [
-    { "name": "spec 视角", "cmd": ["<填写：输出 .review/spec.yaml 的无头调用>"] },
-    { "name": "compat 视角", "cmd": ["<填写：输出 .review/compat.yaml 的无头调用>"] },
-    { "name": "impact 视角", "cmd": ["<填写：输出 .review/impact.yaml 的无头调用>"] },
+    { "name": "spec 视角", "cmd": ["python", "scripts/ai_review.py", "--axis", "spec", "--out", ".review/spec.yaml"] },
+    { "name": "compat 视角", "cmd": ["python", "scripts/ai_review.py", "--axis", "compat", "--out", ".review/compat.yaml"] },
+    { "name": "impact 视角", "cmd": ["python", "scripts/ai_review.py", "--axis", "impact", "--out", ".review/impact.yaml"] },
     { "name": "合并三份 findings", "cmd": ["python", "scripts/merge-findings.py", "merge", "--inputs", ".review/spec.yaml", ".review/compat.yaml", ".review/impact.yaml", "--outdir", ".review"] },
     { "name": "算出下一轮", "cmd": ["python", "scripts/review-state.py", "next-round", "--out", ".review/next-round"] },
     { "name": "轮次记账", "cmd": ["python", "scripts/review-state.py", "record", "--round", "@.review/next-round", "--important", "@.review/important-count", "--axes", "spec,standards"] }

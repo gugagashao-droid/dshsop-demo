@@ -9,6 +9,7 @@ from pathlib import Path
 
 EXPECTED = {
     "_common.py",
+    "ai_review.py",
     "check-docs.py",
     "check-model-separation.py",
     "check-structure.py",
